@@ -10,37 +10,37 @@ app.get("/", (req, res) => {
   res.json({ status: true, message: "YT-DLP MP3 API Running" });
 });
 
-app.get("/mp3", async (req, res) => {
+app.get("/mp3", (req, res) => {
   const url = req.query.url;
-  if (!url) {
+  if (!url)
     return res.status(400).json({ status: false, error: "URL required" });
-  }
 
-  const filename = `audio_${Date.now()}.mp3`;
-  const output = path.join(__dirname, filename);
+  const file = `audio_${Date.now()}.mp3`;
+  const output = path.join(__dirname, file);
 
   const cmd = `
-yt-dlp -f bestaudio/best \
+yt-dlp \
+-f bestaudio/best \
 --extract-audio \
 --audio-format mp3 \
 --audio-quality 0 \
 --no-playlist \
---user-agent "Mozilla/5.0" \
+--extractor-args "youtube:player_client=android" \
+--user-agent "Mozilla/5.0 (Linux; Android 10)" \
 -o "${output}" \
 "${url}"
 `;
 
-  exec(cmd, { maxBuffer: 1024 * 1024 * 50 }, (err) => {
+  exec(cmd, { maxBuffer: 1024 * 1024 * 100 }, (err) => {
     if (err || !fs.existsSync(output)) {
       console.error("YT-DLP ERROR:", err);
-      return res
-        .status(500)
-        .json({ status: false, error: "Download failed" });
+      return res.status(500).json({
+        status: false,
+        error: "Download failed"
+      });
     }
 
-    res.sendFile(output, () => {
-      fs.unlinkSync(output);
-    });
+    res.sendFile(output, () => fs.unlinkSync(output));
   });
 });
 
