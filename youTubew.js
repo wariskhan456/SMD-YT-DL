@@ -1,219 +1,104 @@
 export default {
   async fetch(request) {
     const url = new URL(request.url);
-    const youtubeUrl = url.searchParams.get('url');
+    const inputUrl = url.searchParams.get('url');
 
-    const headers = {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    };
-
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers });
-    }
-
-    if (!youtubeUrl) {
+    // Step 1: Validate Input
+    if (!inputUrl || !inputUrl.includes('instagram.com')) {
       return new Response(
         JSON.stringify({
           status: 'error',
-          message: 'YouTube URL parameter is required',
-          example: '?url=https://www.youtube.com/watch?v=VIDEO_ID',
-          channel: '@old_studio786'
+          message: 'Missing or invalid Instagram URL'
         }, null, 2),
-        { status: 400, headers }
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    const videoId = extractVideoId(youtubeUrl);
-    if (!videoId) {
-      return new Response(
-        JSON.stringify({
-          status: 'error',
-          message: 'Invalid YouTube URL',
-          channel: '@old_studio786'
-        }, null, 2),
-        { status: 400, headers }
-      );
-    }
+    const encodedUrl = encodeURIComponent(inputUrl);
+    const targetUrl = `https://snapdownloader.com/tools/instagram-reels-downloader/download?url=${encodedUrl}`;
 
+    // Step 2: Advanced Fetch with real browser-like headers
+    let response;
     try {
-      const result1 = await extractYouTubeStreamingData(videoId);
-      if (result1) return successResponse(result1, headers);
-
-      const result2 = await getYouTubePlayerData(videoId);
-      if (result2) return successResponse(result2, headers);
-
-      const result3 = await getYouTubeEmbedData(videoId);
-      if (result3) return successResponse(result3, headers);
-
-      const result4 = await tryInvidious(videoId);
-      if (result4) return successResponse(result4, headers);
-
+      response = await fetch(targetUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Referer': 'https://snapdownloader.com/',
+          'Origin': 'https://snapdownloader.com',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'same-origin',
+          'Pragma': 'no-cache',
+          'Cache-Control': 'no-cache'
+        },
+        redirect: 'follow'
+      });
     } catch (err) {
-      console.log('All methods failed:', err.message);
+      return new Response(
+        JSON.stringify({
+          status: 'error',
+          message: 'Request failed',
+          credit: '@mrshaban282'
+        }, null, 2),
+        { status: 502, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    // 🔴 UPDATED FINAL FALLBACK (yt1z.click)
-    return new Response(
-      JSON.stringify({
-        status: 'info',
-        message: 'Direct streaming not accessible via browser',
-        note: 'Use external downloader tools below (browser required)',
-        videoId: videoId,
-        tools: [
-          {
-            name: 'YT1Z',
-            url: `https://yt1z.click/en/video/${videoId}`
-          },
-          {
-            name: 'YT5S',
-            url: `https://yt5s.com/en?q=https://youtube.com/watch?v=${videoId}`
-          }
-        ],
-        usage: 'Open link manually in browser to download',
-        channel: '@old_studio786'
-      }, null, 2),
-      { headers }
-    );
-  }
-};
-
-function extractVideoId(url) {
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?#]+)/,
-    /youtube\.com\/embed\/([^&?#]+)/,
-    /youtube\.com\/v\/([^&?#]+)/
-  ];
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match && match[1]) return match[1];
-  }
-  return null;
-}
-
-function successResponse(data, headers) {
-  data.channel = '@old_studio786';
-  return new Response(JSON.stringify(data, null, 2), { headers });
-}
-
-// ================== METHOD 1 ==================
-async function extractYouTubeStreamingData(videoId) {
-  try {
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const response = await fetch(videoUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
-    });
-
-    if (!response.ok) return null;
+    if (!response.ok) {
+      return new Response(
+        JSON.stringify({
+          status: 'error',
+          message: `HTTP ${response.status} from snapdownloader`,
+          credit: '@mrshaban282'
+        }, null, 2),
+        { status: response.status, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     const html = await response.text();
-    const titleMatch = html.match(/<title>([^<]*)<\/title>/);
-    const title = titleMatch
-      ? titleMatch[1].replace(' - YouTube', '').trim()
-      : 'YouTube Video';
 
-    const match = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
-    if (!match) return null;
+    // Step 4: Extract Video URL (.mp4)
+    const videoRegex = /<a[^>]+href="([^"]*\.mp4[^"]*)"[^>]*>/i;
+    const videoMatch = html.match(videoRegex);
+    let videoUrl = videoMatch ? decodeURIComponent(videoMatch[1].replace(/&amp;/g, '&')) : '';
 
-    const playerData = JSON.parse(match[1]);
-    return processYouTubePlayerData(playerData, videoId, title);
+    // Step 5: Extract Thumbnail (.jpg)
+    const thumbRegex = /<a[^>]+href="([^"]*\.jpg[^"]*)"[^>]*>/i;
+    const thumbMatch = html.match(thumbRegex);
+    let thumbUrl = thumbMatch ? decodeURIComponent(thumbMatch[1].replace(/&amp;/g, '&')) : '';
 
-  } catch {
-    return null;
-  }
-}
-
-function processYouTubePlayerData(playerData, videoId, title) {
-  const formats = [];
-
-  const allFormats = [
-    ...(playerData.streamingData?.formats || []),
-    ...(playerData.streamingData?.adaptiveFormats || [])
-  ];
-
-  for (const f of allFormats) {
-    let url = f.url;
-    if (!url && f.signatureCipher) {
-      const p = new URLSearchParams(f.signatureCipher);
-      url = p.get('url');
+    // Step 6: Final Response
+    if (videoUrl && videoUrl.includes('.mp4')) {
+      return new Response(
+        JSON.stringify({
+          status: 'success',
+          video: videoUrl,
+          thumbnail: thumbUrl || null,
+          channel: '@mrshaban282'  // Aapka credit
+        }, null, 2),
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-store'
+          }
+        }
+      );
+    } else {
+      return new Response(
+        JSON.stringify({
+          status: 'error',
+          message: 'Video not found in response',
+          channel: '@mrshaban282'
+        }, null, 2),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
     }
-    if (url) {
-      formats.push({
-        quality: f.qualityLabel || (f.audioQuality ? 'audio' : 'unknown'),
-        type: f.mimeType || 'video/mp4',
-        url
-      });
-    }
   }
-
-  if (!formats.length) return null;
-
-  return {
-    status: 'success',
-    videoId,
-    title,
-    duration: formatDuration(playerData.videoDetails?.lengthSeconds),
-    author: playerData.videoDetails?.author || '',
-    thumbnail: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
-    formats,
-    source: 'youtube-direct'
-  };
-}
-
-function formatDuration(seconds) {
-  if (!seconds) return '';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-// ================== METHOD 2 ==================
-async function getYouTubePlayerData(videoId) {
-  try {
-    const res = await fetch(`https://www.youtube.com/oembed?url=https://youtube.com/watch?v=${videoId}&format=json`);
-    if (!res.ok) return null;
-    const d = await res.json();
-    return {
-      status: 'success',
-      videoId,
-      title: d.title,
-      author: d.author_name,
-      thumbnail: d.thumbnail_url,
-      source: 'youtube-oembed'
-    };
-  } catch {
-    return null;
-  }
-}
-
-// ================== METHOD 3 ==================
-async function getYouTubeEmbedData(videoId) {
-  return null;
-}
-
-// ================== METHOD 4 ==================
-async function tryInvidious(videoId) {
-  const instances = ['https://yewtu.be', 'https://inv.nadeko.net'];
-  for (const i of instances) {
-    try {
-      const r = await fetch(`${i}/api/v1/videos/${videoId}`);
-      if (!r.ok) continue;
-      const d = await r.json();
-      return {
-        status: 'success',
-        videoId,
-        title: d.title,
-        duration: formatDuration(d.duration),
-        author: d.author,
-        thumbnail: d.videoThumbnails?.[0]?.url,
-        source: 'invidious'
-      };
-    } catch {}
-  }
-  return null;
-}
+};
